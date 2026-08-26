@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cafe Youth - Digital Billing</title>
+    <!-- Library to convert HTML to Image -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            background: #f0f2f5;
+        }
+
+        .header {
+            background: #3C3489;
+            color: white;
+            padding: 15px;
+            text-align: center;
+        }
+
+        .menu-section {
+            padding: 15px;
+            margin-bottom: 200px;
+        }
+
+        .search-bar {
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            font-size: 16px;
+        }
+
+        .item-card {
+            background: white;
+            padding: 15px;
+            margin-top: 10px;
+            border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+        }
+
+        /* Receipt Design (Hidden initially) */
+        #bill-container {
+            width: 320px;
+            background: white;
+            padding: 25px;
+            margin: 20px auto;
+            border: 1px solid #eee;
+            color: #000;
+            display: none;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        .receipt-header {
+            text-align: center;
+            border-bottom: 2px dashed #000;
+            padding-bottom: 15px;
+        }
+
+        .receipt-table {
+            width: 100%;
+            margin-top: 15px;
+            border-collapse: collapse;
+        }
+
+        .receipt-total {
+            border-top: 2px dashed #000;
+            margin-top: 15px;
+            padding-top: 10px;
+            font-weight: bold;
+            font-size: 18px;
+        }
+
+        /* Floating Cart at Bottom */
+        .cart-footer {
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            background: white;
+            padding: 20px;
+            border-top: 2px solid #3C3489;
+            box-sizing: border-box;
+            text-align: center;
+        }
+
+        .btn {
+            border: none;
+            padding: 12px;
+            border-radius: 8px;
+            font-weight: bold;
+            width: 100%;
+            margin-top: 8px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .btn-confirm {
+            background: #0F6E56;
+            color: white;
+        }
+
+        .btn-download {
+            background: #FAC775;
+            color: black;
+            display: none;
+        }
+
+        .btn-report {
+            background: #185FA5;
+            color: white;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header">
+        <h1>CAFE YOUTH</h1>
+        <button class="btn btn-report" onclick="window.location.href='/api/reports_ui'">View Daily Reports</button>
+    </div>
+
+    <div class="menu-section">
+        <input type="text" id="search" class="search-bar" placeholder="🔍 Search Items..." onkeyup="filterMenu()">
+        <div id="menu-list"></div>
+    </div>
+
+    <!-- THIS IS THE AREA THAT WILL BECOME A PICTURE -->
+    <div id="bill-container">
+        <div class="receipt-header">
+            <h2 style="margin:0;">CAFE YOUTH</h2>
+            <p>Fun, Frndz & Gupshup</p>
+            <p style="font-size: 12px;" id="bill-timestamp"></p>
+        </div>
+        <table class="receipt-table">
+            <thead style="border-bottom: 1px solid #000;">
+                <tr>
+                    <th align="left">Item</th>
+                    <th>Qty</th>
+                    <th align="right">Price</th>
+                </tr>
+            </thead>
+            <tbody id="receipt-body"></tbody>
+        </table>
+        <div id="discount-display"></div>
+        <div class="receipt-total" id="receipt-total-display"></div>
+        <p style="text-align:center; margin-top:20px; font-weight: bold;">*** Thanks For ordering ***</p>
+        <div style="text-align:center; margin: 15px 0;">
+            <img src="/static/qr.png" alt="QR Code" style="width: 180px; height: auto;" />
+        </div>
+        <p style="text-align:center; font-weight: bold; margin-bottom: 10px; font-size: 16px;">OUT FOR DELIVERY</p>
+    </div>
+
+    <div class="cart-footer">
+        <div id="cart-count">Items in Cart: 0</div>
+        <select id="discount-select" class="btn">
+            <option value="0">No Discount</option>
+            <option value="10">10% Discount</option>
+            <option value="15">15% Discount</option>
+            <option value="20">20% Discount</option>
+        </select>
+        <button class="btn btn-confirm" id="view-bill-btn" onclick="generateBillPreview()">PREVIEW BILL</button>
+        <button class="btn btn-download" id="download-btn" onclick="saveAsImage()">SAVE BILL PIC & SAVE ORDER
+            📸</button>
+    </div>
+
+    <script>
+        let fullMenu = [];
+        let cart = [];
+
+        // Fetch menu from backend
+        fetch('/api/menu').then(res => res.json()).then(data => {
+            fullMenu = data;
+            renderMenu(data);
+        });
+
+        function renderMenu(items) {
+            const list = document.getElementById('menu-list');
+            list.innerHTML = items.map(item => `
+            <div class="item-card" onclick="addToCart('${item.name}', ${item.price})">
+                <span>${item.name}</span>
+                <span style="color:#0F6E56; font-weight:bold;">₹${item.price} +</span>
+            </div>
+        `).join('');
+        }
+
+        function filterMenu() {
+            const term = document.getElementById('search').value.toLowerCase();
+            const filtered = fullMenu.filter(i => i.name.toLowerCase().includes(term));
+            renderMenu(filtered);
+        }
+
+        function addToCart(name, price) {
+            let existing = cart.find(i => i.name === name);
+            if (existing) {
+                existing.qty += 1;
+                existing.total = existing.qty * price;
+            } else {
+                cart.push({ name, price, qty: 1, total: price });
+            }
+            document.getElementById('cart-count').innerText = "Items in Cart: " + cart.length;
+        }
+
+        function generateBillPreview() {
+            if (cart.length === 0) return alert("Cart is empty!");
+
+            const bill = document.getElementById('bill-container');
+            bill.style.display = 'block';
+
+            document.getElementById('bill-timestamp').innerText = new Date().toLocaleString();
+
+            const body = document.getElementById('receipt-body');
+            body.innerHTML = cart.map(i => `
+            <tr>
+                <td>${i.name}</td>
+                <td align="center">${i.qty}</td>
+                <td align="right">₹${i.total}</td>
+            </tr>
+        `).join('');
+
+            const subtotal = cart.reduce((sum, i) => sum + i.total, 0);
+
+            const discountPercent =
+                parseInt(document.getElementById('discount-select').value);
+
+            const discountAmount =
+                Math.round(subtotal * discountPercent / 100);
+
+            const finalTotal =
+                subtotal - discountAmount;
+
+            document.getElementById('discount-display').innerText =
+                `Discount (${discountPercent}%): -₹${discountAmount}`;
+
+            document.getElementById('receipt-total-display').innerText =
+                `GRAND TOTAL: ₹${finalTotal}`;
+
+            document.getElementById('download-btn').style.display = 'block';
+            document.getElementById('view-bill-btn').style.display = 'none';
+
+            // Scroll to the bill preview
+            bill.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function saveAsImage() {
+            const billElement = document.getElementById('bill-container');
+            html2canvas(billElement).then(canvas => {
+                const imageData = canvas.toDataURL("image/png");
+
+                // Create a temporary link to download
+                const link = document.createElement('a');
+                link.download = 'CafeYouth_Bill_' + Date.now() + '.png';
+                link.href = imageData;
+                link.click();
+
+                // Now save order data to database
+                saveToDatabase();
+            });
+        }
+
+        function saveToDatabase() {
+            fetch('/api/save_order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(cart)
+            }).then(res => {
+                if (res.ok) {
+                    alert("Order Saved & Image Generated!");
+                    location.reload(); // Refresh to clear everything
+                }
+            });
+        }
+    </script>
+
+</body>
+
+</html>
