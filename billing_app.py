@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import sqlite3
 import datetime
+import math
 
 class CafeYouthBilling:
     def __init__(self, root):
@@ -20,6 +21,7 @@ class CafeYouthBilling:
         
         tk.Label(nav_frame, text="CAFE YOUTH MANAGEMENT", font=("Arial", 18, "bold"), bg="#3C3489", fg="white").pack(side="left", padx=20)
         tk.Button(nav_frame, text="📊 VIEW DAILY REPORTS", command=self.open_reports, bg="#FAC775", fg="black", font=("Arial", 10, "bold")).pack(side="right", padx=20)
+        tk.Button(nav_frame, text="ADD MENU ITEM", command=self.open_add_menu_item, bg="#0F6E56", fg="white", font=("Arial", 10, "bold")).pack(side="right", padx=5)
 
         # --- MAIN LAYOUT ---
         main_frame = tk.Frame(root, padx=20, pady=20)
@@ -94,6 +96,85 @@ class CafeYouthBilling:
         # --- TEMPORARY PRICE HIKE LOOP END ---
 
         self.update_menu_list()
+
+    @staticmethod
+    def save_menu_item_to_db(name, base_price):
+        conn = sqlite3.connect('cafe.db')
+        try:
+            exists = conn.execute("SELECT 1 FROM menu WHERE LOWER(name) = LOWER(?)", (name,)).fetchone()
+            if exists:
+                return False
+            conn.execute("INSERT INTO menu (name, price) VALUES (?, ?)", (name, base_price))
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+    def open_add_menu_item(self):
+        add_window = tk.Toplevel(self.root)
+        add_window.title("Add Menu Item")
+        add_window.geometry("380x220")
+        add_window.transient(self.root)
+        add_window.grab_set()
+
+        name_var = tk.StringVar()
+        price_var = tk.StringVar()
+        form_frame = tk.Frame(add_window, padx=20, pady=16)
+        form_frame.pack(fill="both", expand=True)
+
+        tk.Label(form_frame, text="Item name").grid(row=0, column=0, sticky="w", pady=5)
+        name_entry = tk.Entry(form_frame, textvariable=name_var, font=("Arial", 11))
+        name_entry.grid(row=0, column=1, sticky="ew", pady=5)
+        tk.Label(form_frame, text="Base price (before billing adjustment)").grid(row=1, column=0, columnspan=2, sticky="w", pady=(10, 2))
+        tk.Label(form_frame, text="₹20 is added up to ₹150; ₹30 above ₹150").grid(row=2, column=0, columnspan=2, sticky="w")
+        price_entry = tk.Entry(form_frame, textvariable=price_var, font=("Arial", 11))
+        price_entry.grid(row=3, column=0, columnspan=2, sticky="ew", pady=6)
+        form_frame.columnconfigure(1, weight=1)
+
+        def save_item():
+            name = name_var.get().strip()
+            if not name:
+                messagebox.showerror("Invalid item", "Enter an item name.", parent=add_window)
+                name_entry.focus_set()
+                return
+
+            try:
+                base_price = float(price_var.get())
+                if not math.isfinite(base_price) or base_price <= 0:
+                    raise ValueError
+            except ValueError:
+                messagebox.showerror("Invalid price", "Enter a price greater than zero.", parent=add_window)
+                price_entry.focus_set()
+                return
+
+            try:
+                saved = self.save_menu_item_to_db(name, base_price)
+            except sqlite3.Error as error:
+                messagebox.showerror("Save failed", str(error), parent=add_window)
+                return
+
+            if not saved:
+                messagebox.showerror("Duplicate item", "An item with this name already exists.", parent=add_window)
+                name_entry.focus_set()
+                return
+
+            self.search_var.set("")
+            self.load_menu_from_db()
+            messagebox.showinfo("Item added", f"{name} added to the menu.", parent=add_window)
+            add_window.destroy()
+
+        button_frame = tk.Frame(form_frame)
+        button_frame.grid(row=4, column=0, columnspan=2, sticky="e", pady=(12, 0))
+        tk.Button(button_frame, text="CANCEL", command=add_window.destroy).pack(side="left", padx=5)
+        tk.Button(button_frame, text="SAVE ITEM", command=save_item, bg="#0F6E56", fg="white").pack(side="left", padx=5)
+
+        def submit_on_enter(event):
+            if event.widget in (name_entry, price_entry):
+                save_item()
+                return "break"
+
+        add_window.bind("<Return>", submit_on_enter)
+        name_entry.focus_set()
 
     def update_menu_list(self, *args):
         search_term = self.search_var.get().lower()
