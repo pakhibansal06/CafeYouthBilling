@@ -47,6 +47,7 @@ class CafeYouthBilling:
         self.qty_var = tk.StringVar(value="1")
         tk.Entry(add_ctrl_frame, textvariable=self.qty_var, width=5, font=("Arial", 12)).pack(side="left", padx=5)
         tk.Button(add_ctrl_frame, text="ADD TO ORDER", command=self.add_to_cart, bg="#0F6E56", fg="white", font=("Arial", 11, "bold")).pack(side="right", fill="x", expand=True)
+        tk.Button(left_frame, text="REMOVE SELECTED FROM MENU", command=self.remove_menu_item, bg="#993C1D", fg="white").pack(fill="x", pady=(0, 5))
 
         # RIGHT SIDE: Current Order
         right_frame = tk.LabelFrame(main_frame, text=" 2. Current Order ", padx=10, pady=10)
@@ -82,17 +83,17 @@ class CafeYouthBilling:
 
     def load_menu_from_db(self):
         conn = sqlite3.connect('cafe.db')
-        raw_items = conn.execute("SELECT name, price FROM menu").fetchall()
+        raw_items = conn.execute("SELECT id, name, price FROM menu").fetchall()
         conn.close()
 
         # --- TEMPORARY PRICE HIKE LOOP START ---
         self.all_menu_items = []
-        for name, price in raw_items:
+        for item_id, name, price in raw_items:
             if price <= 150:
                 new_price = price + 20
             else:
                 new_price = price + 30
-            self.all_menu_items.append((name, new_price))
+            self.all_menu_items.append((item_id, name, new_price))
         # --- TEMPORARY PRICE HIKE LOOP END ---
 
         self.update_menu_list()
@@ -107,6 +108,16 @@ class CafeYouthBilling:
             conn.execute("INSERT INTO menu (name, price) VALUES (?, ?)", (name, base_price))
             conn.commit()
             return True
+        finally:
+            conn.close()
+
+    @staticmethod
+    def delete_menu_item_from_db(item_id):
+        conn = sqlite3.connect('cafe.db')
+        try:
+            cursor = conn.execute("DELETE FROM menu WHERE id = ?", (item_id,))
+            conn.commit()
+            return cursor.rowcount > 0
         finally:
             conn.close()
 
@@ -179,9 +190,34 @@ class CafeYouthBilling:
     def update_menu_list(self, *args):
         search_term = self.search_var.get().lower()
         for i in self.menu_tree.get_children(): self.menu_tree.delete(i)
-        for name, price in self.all_menu_items:
+        for item_id, name, price in self.all_menu_items:
             if search_term in name.lower():
-                self.menu_tree.insert("", "end", values=(name, f"₹{price}"))
+                self.menu_tree.insert("", "end", iid=str(item_id), values=(name, f"₹{price}"))
+
+    def remove_menu_item(self):
+        selected = self.menu_tree.selection()
+        if not selected:
+            messagebox.showwarning("No item selected", "Select a menu item to remove.", parent=self.root)
+            return
+
+        item_id = int(selected[0])
+        item_name = self.menu_tree.item(selected[0])["values"][0]
+        if not messagebox.askyesno(
+            "Remove menu item",
+            f"Remove {item_name} from the menu? Existing sales records will be kept.",
+            parent=self.root,
+        ):
+            return
+
+        try:
+            removed = self.delete_menu_item_from_db(item_id)
+        except sqlite3.Error as error:
+            messagebox.showerror("Remove failed", str(error), parent=self.root)
+            return
+
+        if removed:
+            self.load_menu_from_db()
+            messagebox.showinfo("Item removed", f"{item_name} removed from the menu.", parent=self.root)
 
     def add_to_cart(self):
         selected = self.menu_tree.selection()
